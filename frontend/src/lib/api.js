@@ -47,4 +47,30 @@ export const api = {
 
   ask: (question) => client.post("/assistant/ask", { question }).then((r) => r.data),
   resetDemo: () => client.post("/demo/reset").then((r) => r.data),
+
+  dashboardSeller: () => client.get("/dashboard/seller").then((r) => r.data),
+  dashboardBuyer: () => client.get("/dashboard/buyer").then((r) => r.data),
+
+  listProducts: (params) => client.get("/products", { params }).then((r) => r.data),
+  getProduct: (id) => client.get(`/products/${id}`).then((r) => r.data),
+  matchProduct: (id) => client.post(`/match/product/${id}`).then((r) => r.data),
+  getSupplier: (id) => client.get(`/suppliers/${id}`).then((r) => r.data),
+
+  listRfqs: (params) => client.get("/rfqs", { params }).then((r) => r.data),
+  getRfq: (id) => client.get(`/rfqs/${id}`).then((r) => r.data),
+  createRfq: (payload) => client.post("/rfqs", payload).then((r) => r.data),
+  matchRfq: (id) => client.post(`/match/rfq/${id}`).then((r) => r.data),
+
+  createOffer: (payload) => client.post("/offers", payload).then((r) => r.data),
+  listOffers: () => client.get("/offers").then((r) => r.data),
+
+  listTransactions: () => client.get("/transactions").then((r) => r.data),
+  getTransaction: (id) => client.get(`/transactions/${id}`).then((r) => r.data),
+  createTransaction: (payload) => client.post("/transactions", payload).then((r) => r.data),
+  advanceTransaction: (id) => client.post(`/transactions/${id}/advance`).then((r) => r.data),
+  checkout: (payload) => client.post("/payments/checkout", payload).then((r) => r.data),
+  paymentStatus: (sid) => client.get(`/payments/status/${sid}`).then((r) => r.data),
+
+  verifyBuyer: (id) => client.post(`/buyers/${id}/verify`).then((r) => r.data),
+  winrate: () => client.get("/insights/winrate").then((r) => r.data),
 };

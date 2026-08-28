@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -661,7 +661,10 @@ th{{background:#F8FAFC;text-transform:uppercase;font-size:11px;letter-spacing:.0
 .grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin:16px 0;font-size:13px;}}
 .k{{color:#64748B;}} .tot{{text-align:right;font-weight:700;font-size:16px;margin-top:16px;}}
 .sig{{margin-top:48px;display:flex;justify-content:space-between;font-size:13px;}}
+.pdfbtn{{position:fixed;top:18px;right:18px;background:#0F172A;color:#fff;border:none;border-radius:999px;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;}}
+@media print{{.pdfbtn{{display:none;}}}}
 </style></head><body><div class='wrap'>
+<button class='pdfbtn' onclick='window.print()'>⬇ Download PDF</button>
 <div class='disc'>⚠ {DISCLAIMER_DOC}</div>
 <div class='head'><div><h1>{title}</h1><div class='muted'>{EXPORTER['name']}</div></div>
 <div class='muted' style='text-align:right'>Ref: {quote.get('number','DRAFT') if quote else 'DRAFT'}<br>Date: {datetime.now().strftime('%d %b %Y')}</div></div>
@@ -1076,9 +1079,10 @@ async def seed_demo():
 
 @api.post("/demo/reset")
 async def demo_reset():
-    for c in ["buyers", "deals", "quotations", "documents", "followups", "activities", "conversations", "sent_emails"]:
+    for c in ["buyers", "deals", "quotations", "documents", "followups", "activities", "conversations", "sent_emails", "products", "rfqs", "offers", "transactions", "payment_transactions"]:
         await db[c].delete_many({})
     await seed_demo()
+    await seed_marketplace()
     return {"ok": True}
 
 
@@ -1089,7 +1093,575 @@ async def root():
 
 @api.get("/config")
 async def config():
-    return {"exporter": EXPORTER, "currency": "USD", "email_provider_configured": bool(os.environ.get("RESEND_API_KEY"))}
+    return {"exporter": EXPORTER, "currency": "USD", "commission_pct": PLATFORM_COMMISSION_PCT,
+            "stripe_enabled": bool(os.environ.get("STRIPE_API_KEY")),
+            "email_provider_configured": bool(os.environ.get("RESEND_API_KEY"))}
+
+
+# ============================================================================
+# MARKETPLACE · PROFILES · RFQ · OFFERS · AI MATCH · TRANSACTIONS · INSIGHTS
+# ============================================================================
+
+COUNTRY_CURRENCY = {
+    "United Arab Emirates": "USD", "Qatar": "USD", "Germany": "EUR", "Saudi Arabia": "USD",
+    "Singapore": "SGD", "India": "INR", "United Kingdom": "GBP", "United States": "USD",
+    "Netherlands": "EUR", "France": "EUR", "Japan": "JPY", "Australia": "AUD",
+}
+PLATFORM_COMMISSION_PCT = 0.5
+COMMISSION_LABEL = "0.5%"
+
+PRODUCT_IMAGES = {
+    "makhana": "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=600&q=80",
+    "rice": "https://images.unsplash.com/photo-1586201375761-83865001e31c?auto=format&fit=crop&w=600&q=80",
+    "turmeric": "https://images.unsplash.com/photo-1615485500704-8e990f9900f7?auto=format&fit=crop&w=600&q=80",
+    "spice": "https://images.unsplash.com/photo-1596040033229-a9821ebd058d?auto=format&fit=crop&w=600&q=80",
+    "chilli": "https://images.unsplash.com/photo-1583119022894-919a68a3d0e3?auto=format&fit=crop&w=600&q=80",
+    "cumin": "https://images.unsplash.com/photo-1509358271058-acd22cc93898?auto=format&fit=crop&w=600&q=80",
+    "textile": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&w=600&q=80",
+    "cotton": "https://images.unsplash.com/photo-1620799140408-edc6dcb6d633?auto=format&fit=crop&w=600&q=80",
+    "tea": "https://images.unsplash.com/photo-1564890369478-c89ca6d9cde9?auto=format&fit=crop&w=600&q=80",
+    "coffee": "https://images.unsplash.com/photo-1447933601403-0c6688de566e?auto=format&fit=crop&w=600&q=80",
+    "default": "https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=600&q=80",
+}
+
+
+def product_image(name):
+    n = (name or "").lower()
+    for k, v in PRODUCT_IMAGES.items():
+        if k in n:
+            return v
+    return PRODUCT_IMAGES["default"]
+
+
+# ---- Models ----
+class ProductCreate(BaseModel):
+    name: str
+    category: str = "Agri & Food"
+    grade: Optional[str] = ""
+    origin: str = "India"
+    available_qty: str = ""
+    moq: str = ""
+    price: float = 0
+    currency: str = "USD"
+    unit: str = "MT"
+    incoterms: List[str] = ["FOB", "CIF"]
+    certifications: List[str] = []
+    packaging: Optional[str] = "Export-grade packaging"
+    port: Optional[str] = "Nhava Sheva (INNSA)"
+    lead_time: Optional[str] = "20-30 days"
+    description: Optional[str] = ""
+
+
+class RFQCreate(BaseModel):
+    product: str
+    category: str = "Agri & Food"
+    grade: Optional[str] = ""
+    quantity: str
+    quantity_value: Optional[float] = 0
+    unit: Optional[str] = "MT"
+    destination: str
+    country: str
+    incoterm: str = "CIF"
+    payment_terms: Optional[str] = ""
+    target_price: Optional[float] = 0
+    currency: Optional[str] = "USD"
+    delivery: Optional[str] = ""
+    industry: Optional[str] = ""
+    buyer_name: Optional[str] = "Demo Buyer Co."
+    notes: Optional[str] = ""
+
+
+class OfferCreate(BaseModel):
+    rfq_id: Optional[str] = None
+    product_id: Optional[str] = None
+    buyer_name: str
+    seller_name: Optional[str] = None
+    price: float
+    quantity: str
+    incoterm: str = "CIF"
+    message: Optional[str] = ""
+
+
+class TxnCreate(BaseModel):
+    deal_id: Optional[str] = None
+    buyer_name: str
+    seller_name: Optional[str] = None
+    product: str
+    quantity: str
+    value: float
+    currency: str = "USD"
+
+
+class CheckoutReq(BaseModel):
+    transaction_id: str
+    origin_url: str
+
+
+# ---- Products ----
+DEFAULT_SUPPLIER = {
+    "id": "supplier-nimbus", "name": EXPORTER["name"], "country": "India",
+    "verified": True, "years_exporting": 9, "completed_transactions": 47,
+    "response_rate": 96, "avg_response": "3h", "rating": 4.8,
+    "markets": ["UAE", "Qatar", "Germany", "Saudi Arabia", "Singapore"],
+    "certifications": ["FSSAI", "APEDA", "ISO 22000", "Spices Board"],
+    "description": "Nimbus Agro Exports is a Pune-based exporter of premium Indian agri-commodities — makhana, basmati rice, spices and textiles — serving buyers across the Middle East, Europe and Asia.",
+    "avatar": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=256&q=80",
+}
+
+
+@api.get("/products")
+async def list_products(q: Optional[str] = None, category: Optional[str] = None, country: Optional[str] = None, incoterm: Optional[str] = None):
+    query = {}
+    if category and category != "All":
+        query["category"] = category
+    prods = await db.products.find(query, {"_id": 0}).to_list(200)
+    if q:
+        ql = q.lower()
+        prods = [p for p in prods if ql in p["name"].lower() or ql in p.get("category", "").lower() or ql in p.get("seller_name", "").lower()]
+    if country and country != "All":
+        prods = [p for p in prods if p.get("origin") == country]
+    if incoterm and incoterm != "All":
+        prods = [p for p in prods if incoterm in p.get("incoterms", [])]
+    return prods
+
+
+@api.get("/products/{pid}")
+async def get_product(pid: str):
+    p = await db.products.find_one({"id": pid}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Product not found")
+    return p
+
+
+@api.post("/products")
+async def create_product(inp: ProductCreate):
+    p = inp.dict()
+    p.update({
+        "id": str(uuid.uuid4()), "seller_id": DEFAULT_SUPPLIER["id"], "seller_name": EXPORTER["name"],
+        "seller_country": "India", "verified": True, "rating": 4.8, "response_time": "3h",
+        "image": product_image(inp.name), "status": "Published", "created_at": now_iso(),
+    })
+    await db.products.insert_one(dict(p))
+    return clean(p)
+
+
+# ---- RFQs ----
+@api.get("/rfqs")
+async def list_rfqs(q: Optional[str] = None, country: Optional[str] = None, incoterm: Optional[str] = None):
+    rfqs = await db.rfqs.find({}, {"_id": 0}).to_list(200)
+    if q:
+        ql = q.lower()
+        rfqs = [r for r in rfqs if ql in r["product"].lower() or ql in r.get("buyer_name", "").lower() or ql in r.get("destination", "").lower()]
+    if country and country != "All":
+        rfqs = [r for r in rfqs if r.get("country") == country]
+    if incoterm and incoterm != "All":
+        rfqs = [r for r in rfqs if r.get("incoterm") == incoterm]
+    rfqs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return rfqs
+
+
+@api.get("/rfqs/{rid}")
+async def get_rfq(rid: str):
+    r = await db.rfqs.find_one({"id": rid}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "RFQ not found")
+    return r
+
+
+@api.post("/rfqs")
+async def create_rfq(inp: RFQCreate):
+    r = inp.dict()
+    r.update({
+        "id": str(uuid.uuid4()), "currency": inp.currency or COUNTRY_CURRENCY.get(inp.country, "USD"),
+        "match_score": None, "status": "Open", "offers_count": 0, "created_at": now_iso(),
+    })
+    await db.rfqs.insert_one(dict(r))
+    return clean(r)
+
+
+def _match_score(product, rfq):
+    score, reasons = 55, []
+    if product["name"].lower().split()[0] in rfq["product"].lower() or rfq["product"].lower().split()[0] in product["name"].lower():
+        score += 22; reasons.append("Product category match")
+    if rfq.get("incoterm") in product.get("incoterms", []):
+        score += 12; reasons.append(f"{rfq.get('incoterm')} available")
+    if product.get("origin"):
+        score += 6; reasons.append("Verified origin & documentation")
+    if rfq.get("country") in [c for c in DEFAULT_SUPPLIER["markets"]] or True:
+        score += 5; reasons.append("Destination supported")
+    return min(score, 98), reasons
+
+
+@api.post("/match/rfq/{rid}")
+async def match_rfq(rid: str):
+    rfq = await db.rfqs.find_one({"id": rid}, {"_id": 0})
+    if not rfq:
+        raise HTTPException(404, "RFQ not found")
+    prods = await db.products.find({}, {"_id": 0}).to_list(200)
+    scored = []
+    for p in prods:
+        s, reasons = _match_score(p, rfq)
+        scored.append({"product": p, "score": s, "reasons": reasons,
+                       "label": "Excellent" if s >= 90 else "Strong" if s >= 82 else "Good"})
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    top = scored[:6]
+    try:
+        best = top[0]["product"]["name"] if top else rfq["product"]
+        note = await llm_text(
+            "You are ExportPilot's sourcing AI. One concise sentence explaining why these suppliers fit the buyer's requirement. No markdown.",
+            f"Buyer needs {rfq['quantity']} of {rfq['product']} to {rfq['destination']} ({rfq.get('incoterm')}). Best match: {best}.",
+            f"We found {len(top)} suppliers that match your {rfq['product']} requirement on product, incoterm and destination.")
+    except Exception:
+        note = f"We found {len(top)} suppliers matching your {rfq['product']} requirement."
+    return {"summary": note, "matches": top}
+
+
+@api.post("/match/product/{pid}")
+async def match_product(pid: str):
+    prod = await db.products.find_one({"id": pid}, {"_id": 0})
+    if not prod:
+        raise HTTPException(404, "Product not found")
+    rfqs = await db.rfqs.find({}, {"_id": 0}).to_list(200)
+    scored = []
+    for r in rfqs:
+        s, reasons = _match_score(prod, r)
+        scored.append({"rfq": r, "score": s, "reasons": reasons,
+                       "label": "Excellent" if s >= 90 else "Strong" if s >= 82 else "Good"})
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return {"matches": scored[:6]}
+
+
+# ---- Supplier / Buyer profiles ----
+@api.get("/suppliers/{sid}")
+async def get_supplier(sid: str):
+    prods = await db.products.find({}, {"_id": 0}).to_list(200)
+    return {"supplier": DEFAULT_SUPPLIER, "products": prods}
+
+
+# ---- Offers ----
+@api.post("/offers")
+async def create_offer(inp: OfferCreate):
+    o = inp.dict()
+    o.update({"id": str(uuid.uuid4()), "status": "Sent", "created_at": now_iso()})
+    await db.offers.insert_one(dict(o))
+    if inp.rfq_id:
+        await db.rfqs.update_one({"id": inp.rfq_id}, {"$inc": {"offers_count": 1}})
+    return clean(o)
+
+
+@api.get("/offers")
+async def list_offers():
+    offers = await db.offers.find({}, {"_id": 0}).to_list(200)
+    offers.sort(key=lambda o: o.get("created_at", ""), reverse=True)
+    return offers
+
+
+# ---- Transactions & Payment Protection (Stripe) ----
+TXN_STEPS = ["Deal Agreed", "Payment Protected", "Fulfillment In Progress", "Release Pending", "Payout Completed"]
+
+
+def _txn_public(t):
+    return {k: v for k, v in t.items() if k != "_id"}
+
+
+@api.post("/transactions")
+async def create_transaction(inp: TxnCreate):
+    value = round(inp.value, 2)
+    commission = round(value * PLATFORM_COMMISSION_PCT / 100, 2)
+    payout = round(value - commission, 2)
+    t = {
+        "id": str(uuid.uuid4()), "number": f"EP-{uuid.uuid4().hex[:6].upper()}",
+        "deal_id": inp.deal_id, "buyer_name": inp.buyer_name, "seller_name": inp.seller_name or EXPORTER["name"],
+        "product": inp.product, "quantity": inp.quantity, "value": value, "currency": inp.currency,
+        "commission_pct": PLATFORM_COMMISSION_PCT, "commission": commission, "payout": payout,
+        "status": "Payment Pending", "stripe_session_id": None, "paid": False,
+        "created_at": now_iso(),
+        "timeline": [{"step": "Deal Agreed", "done": True, "at": now_iso()}] +
+                    [{"step": s, "done": False, "at": None} for s in TXN_STEPS[1:]],
+    }
+    await db.transactions.insert_one(dict(t))
+    if inp.deal_id:
+        await add_activity(inp.deal_id, f"Protected transaction {t['number']} created — {inp.currency} {value:,.0f}.", "transaction")
+    return _txn_public(t)
+
+
+@api.get("/transactions")
+async def list_transactions():
+    ts = await db.transactions.find({}, {"_id": 0}).to_list(200)
+    ts.sort(key=lambda t: t.get("created_at", ""), reverse=True)
+    return ts
+
+
+@api.get("/transactions/{tid}")
+async def get_transaction(tid: str):
+    t = await db.transactions.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Transaction not found")
+    return t
+
+
+def _advance_timeline(t, target_status):
+    idx = TXN_STEPS.index(target_status) if target_status in TXN_STEPS else 0
+    tl = t.get("timeline", [])
+    for i, step in enumerate(tl):
+        step["done"] = i <= idx
+        if i <= idx and not step.get("at"):
+            step["at"] = now_iso()
+    return tl
+
+
+@api.post("/transactions/{tid}/advance")
+async def advance_transaction(tid: str):
+    t = await db.transactions.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Transaction not found")
+    order = ["Payment Pending", "Payment Protected", "Fulfillment In Progress", "Release Pending", "Payout Completed"]
+    cur = t.get("status", "Payment Pending")
+    nxt = order[min(order.index(cur) + 1, len(order) - 1)]
+    tl = _advance_timeline(t, nxt if nxt in TXN_STEPS else "Payment Protected")
+    await db.transactions.update_one({"id": tid}, {"$set": {"status": nxt, "timeline": tl}})
+    return await db.transactions.find_one({"id": tid}, {"_id": 0})
+
+
+def _stripe_client(request: Request):
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    host_url = str(request.base_url)
+    webhook_url = f"{host_url}api/webhook/stripe"
+    return StripeCheckout(api_key=os.environ["STRIPE_API_KEY"], webhook_url=webhook_url)
+
+
+@api.post("/payments/checkout")
+async def payments_checkout(inp: CheckoutReq, request: Request):
+    from emergentintegrations.payments.stripe.checkout import CheckoutSessionRequest
+    t = await db.transactions.find_one({"id": inp.transaction_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Transaction not found")
+    amount = float(round(t["value"], 2))
+    origin = inp.origin_url.rstrip("/")
+    success_url = f"{origin}/app/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/app/payment/cancel"
+    checkout = _stripe_client(request)
+    req = CheckoutSessionRequest(
+        amount=amount, currency="usd", success_url=success_url, cancel_url=cancel_url,
+        metadata={"transaction_id": t["id"], "type": "payment_protection"},
+    )
+    session = await checkout.create_checkout_session(req)
+    await db.payment_transactions.insert_one({
+        "session_id": session.session_id, "transaction_id": t["id"], "amount": amount,
+        "currency": "usd", "status": "initiated", "payment_status": "pending",
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+    await db.transactions.update_one({"id": t["id"]}, {"$set": {"stripe_session_id": session.session_id}})
+    return {"checkout_url": session.url, "session_id": session.session_id}
+
+
+@api.get("/payments/status/{session_id}")
+async def payments_status(session_id: str, request: Request):
+    rec = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "Transaction not found")
+    if rec.get("payment_status") != "paid":
+        try:
+            checkout = _stripe_client(request)
+            status = await checkout.get_checkout_status(session_id)
+            if status.payment_status == "paid" or status.status == "complete":
+                await db.payment_transactions.update_one(
+                    {"session_id": session_id, "payment_status": {"$ne": "paid"}},
+                    {"$set": {"status": "completed", "payment_status": "paid", "updated_at": now_iso()}})
+                t = await db.transactions.find_one({"id": rec["transaction_id"]}, {"_id": 0})
+                if t and not t.get("paid"):
+                    tl = _advance_timeline(t, "Payment Protected")
+                    await db.transactions.update_one({"id": t["id"]},
+                        {"$set": {"paid": True, "status": "Payment Protected", "timeline": tl}})
+                    if t.get("deal_id"):
+                        await add_activity(t["deal_id"], f"Payment protected for transaction {t['number']}.", "payment")
+                rec["payment_status"] = "paid"; rec["status"] = "completed"
+        except Exception as e:
+            logger.error(f"stripe status error: {e}")
+    return {"session_id": session_id, "status": rec.get("status"), "payment_status": rec.get("payment_status"),
+            "transaction_id": rec.get("transaction_id")}
+
+
+@api.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    try:
+        checkout = _stripe_client(request)
+        body = await request.body()
+        resp = await checkout.handle_webhook(body, request.headers.get("Stripe-Signature"))
+        if resp.payment_status == "paid":
+            rec = await db.payment_transactions.find_one({"session_id": resp.session_id})
+            if rec and rec.get("payment_status") != "paid":
+                await db.payment_transactions.update_one({"session_id": resp.session_id},
+                    {"$set": {"payment_status": "paid", "status": "completed", "updated_at": now_iso()}})
+                t = await db.transactions.find_one({"id": rec["transaction_id"]}, {"_id": 0})
+                if t and not t.get("paid"):
+                    tl = _advance_timeline(t, "Payment Protected")
+                    await db.transactions.update_one({"id": t["id"]}, {"$set": {"paid": True, "status": "Payment Protected", "timeline": tl}})
+    except Exception as e:
+        logger.error(f"webhook error: {e}")
+    return {"status": "ok"}
+
+
+# ---- Buyer AI Verification snapshot ----
+@api.post("/buyers/{buyer_id}/verify")
+async def verify_buyer(buyer_id: str):
+    b = await db.buyers.find_one({"id": buyer_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Buyer not found")
+    deals = await db.deals.find({"buyer_id": buyer_id}, {"_id": 0}).to_list(100)
+    won = len([d for d in deals if d["stage"] == "Won"])
+    system = ("You are ExportPilot's buyer-verification AI. Give a concise credibility snapshot for an exporter. "
+              "Never guarantee legitimacy. Return JSON: score (0-100 int), band (Low/Moderate/Strong), "
+              "signals (array of 3 short positive/neutral strings), watchouts (array of up to 2 short caution strings), summary (one sentence).")
+    prompt = f"Buyer {b['name']} from {b['country']}. Deals with us: {len(deals)} (won: {won}). Give a credibility snapshot for the exporter's own due diligence."
+    fallback = {"score": 72 + won * 4, "band": "Strong" if won else "Moderate",
+                "signals": ["Consistent engagement across deals", f"{len(deals)} recorded opportunit{'y' if len(deals)==1 else 'ies'}", "Clear product requirements"],
+                "watchouts": ["Confirm company registration independently", "Verify banking details before shipment"],
+                "summary": "Engagement signals are positive; complete your own KYC before committing to shipment."}
+    data = await llm_json(system, prompt, fallback)
+    for k, v in fallback.items():
+        data.setdefault(k, v)
+    try:
+        data["score"] = max(0, min(int(float(data["score"])), 100))
+    except Exception:
+        data["score"] = fallback["score"]
+    data["disclaimer"] = "AI credibility signals for your own due diligence — not a guarantee of buyer legitimacy."
+    return data
+
+
+# ---- Win-rate insights ----
+@api.get("/insights/winrate")
+async def winrate_insights():
+    deals = await db.deals.find({}, {"_id": 0}).to_list(500)
+    def agg(key):
+        buckets = {}
+        for d in deals:
+            k = d.get(key) or "Other"
+            b = buckets.setdefault(k, {"name": k, "won": 0, "lost": 0, "open": 0, "value": 0})
+            if d["stage"] == "Won":
+                b["won"] += 1; b["value"] += d.get("deal_value", 0)
+            elif d["stage"] == "Lost":
+                b["lost"] += 1
+            else:
+                b["open"] += 1
+        out = []
+        for b in buckets.values():
+            closed = b["won"] + b["lost"]
+            b["win_rate"] = round(b["won"] / closed * 100) if closed else 0
+            out.append(b)
+        return sorted(out, key=lambda x: (x["win_rate"], x["value"]), reverse=True)
+    by_product = agg("product")
+    by_country = agg("country")
+    won = [d for d in deals if d["stage"] == "Won"]
+    lost = [d for d in deals if d["stage"] == "Lost"]
+    total_closed = len(won) + len(lost)
+    return {
+        "overall_win_rate": round(len(won) / total_closed * 100) if total_closed else 0,
+        "won_value": sum(d.get("deal_value", 0) for d in won),
+        "by_product": by_product, "by_country": by_country,
+        "best_product": by_product[0]["name"] if by_product else "—",
+        "best_country": by_country[0]["name"] if by_country else "—",
+    }
+
+
+# ---- Role-aware dashboards ----
+@api.get("/dashboard/seller")
+async def dashboard_seller():
+    deals = await db.deals.find({}, {"_id": 0}).to_list(500)
+    fus = await db.followups.find({}, {"_id": 0}).to_list(200)
+    products = await db.products.find({}, {"_id": 0}).to_list(200)
+    rfqs = await db.rfqs.find({}, {"_id": 0}).to_list(200)
+    txns = await db.transactions.find({}, {"_id": 0}).to_list(200)
+    open_deals = [d for d in deals if d["stage"] not in ("Won", "Lost")]
+    neg = [d for d in deals if d["stage"] == "Negotiation"]
+    protected = [t for t in txns if t.get("paid")]
+    pending_payout = sum(t.get("payout", 0) for t in txns if t.get("status") not in ("Payout Completed",) and t.get("paid"))
+    return {
+        "kpis": {
+            "active_products": len(products), "buyer_requests": len(rfqs),
+            "active_negotiations": len(neg), "pipeline_value": sum(d.get("deal_value", 0) for d in open_deals),
+            "protected_transactions": len(protected), "pending_payout": pending_payout,
+        },
+        "matching_rfqs": len(rfqs),
+        "followups_due": len([f for f in fus if f.get("priority") in ("High Priority", "Due Today")]),
+    }
+
+
+@api.get("/dashboard/buyer")
+async def dashboard_buyer():
+    rfqs = await db.rfqs.find({}, {"_id": 0}).to_list(200)
+    offers = await db.offers.find({}, {"_id": 0}).to_list(200)
+    txns = await db.transactions.find({}, {"_id": 0}).to_list(200)
+    products = await db.products.find({}, {"_id": 0}).to_list(200)
+    protected = [t for t in txns if t.get("paid")]
+    return {
+        "kpis": {
+            "active_rfqs": len([r for r in rfqs if r.get("status") == "Open"]),
+            "supplier_matches": len(products), "active_negotiations": len(offers),
+            "pending_payments": len([t for t in txns if not t.get("paid")]),
+            "protected_transactions": len(protected), "orders": len(protected),
+        },
+        "supplier_matches": len(products),
+    }
+
+
+# ---- Marketplace seed ----
+async def seed_marketplace():
+    if await db.products.count_documents({}) > 0:
+        return
+    logger.info("Seeding marketplace...")
+    prods = [
+        ("Premium Makhana (Fox Nuts)", "Agri & Food", "5 Sutta HS grade", "50 MT/month", "5 MT", 4200, ["FOB", "CIF", "CFR"], ["FSSAI", "APEDA", "ISO 22000"], "Bihar, India"),
+        ("Basmati Rice 1121 Steam", "Agri & Food", "1121 Steam", "200 MT/month", "25 MT", 1520, ["FOB", "CIF"], ["APEDA", "ISO 22000"], "Punjab, India"),
+        ("Organic Turmeric", "Spices", "Curcumin 3%+", "80 MT/month", "10 MT", 4070, ["CIF", "CFR"], ["USDA Organic", "Spices Board"], "Erode, India"),
+        ("Red Chilli Powder", "Spices", "Teja S17", "120 MT/month", "12 MT", 2100, ["FOB", "CIF"], ["FSSAI", "Spices Board"], "Guntur, India"),
+        ("Cumin Seeds", "Spices", "Singapore 99%", "90 MT/month", "18 MT", 3300, ["FOB", "CFR"], ["Spices Board"], "Unjha, India"),
+        ("Cotton Woven Textiles", "Textiles", "200 GSM woven", "500,000 m/month", "40,000 m", 2.4, ["FOB", "CIF"], ["OEKO-TEX", "GOTS"], "Surat, India"),
+        ("Assam CTC Black Tea", "Beverages", "BP grade", "60 MT/month", "5 MT", 3100, ["FOB", "CIF"], ["FSSAI", "Tea Board"], "Assam, India"),
+        ("Arabica Green Coffee", "Beverages", "Grade A washed", "40 MT/month", "5 MT", 5200, ["FOB", "CFR", "CIF"], ["Coffee Board", "Rainforest"], "Chikmagalur, India"),
+    ]
+    for (name, cat, grade, avail, moq, price, inco, certs, origin) in prods:
+        p = {"id": str(uuid.uuid4()), "name": name, "category": cat, "grade": grade, "origin": "India",
+             "origin_region": origin, "available_qty": avail, "moq": moq, "price": price, "currency": "USD",
+             "unit": "MT" if "m" not in moq.split()[1] else "m", "incoterms": inco, "certifications": certs,
+             "packaging": "Food-grade export packaging", "port": "Nhava Sheva (INNSA)", "lead_time": "20-30 days",
+             "description": f"Premium {name} from {origin}, prepared to international export standards.",
+             "seller_id": DEFAULT_SUPPLIER["id"], "seller_name": EXPORTER["name"], "seller_country": "India",
+             "verified": True, "rating": round(4.6 + (hash(name) % 4) / 10, 1), "response_time": "3h",
+             "image": product_image(name), "status": "Published", "created_at": now_iso()}
+        await db.products.insert_one(dict(p))
+
+    rfqs = [
+        ("Dubai Harvest Trading", "United Arab Emirates", "Dubai", "Premium Makhana", "10 MT", 10, "CIF", "30% advance, 70% on docs", 4300, "Agri & Food"),
+        ("Berlin Natural Foods", "Germany", "Hamburg", "Organic Turmeric", "15 MT", 15, "CIF", "LC at sight", 4100, "Spices"),
+        ("Qatar Global Foods", "Qatar", "Doha", "Basmati Rice 1121", "25 MT", 25, "CFR", "50% advance", 1550, "Agri & Food"),
+        ("Singapore Natural Foods", "Singapore", "Singapore", "Cotton Woven Textiles", "40,000 m", 40000, "CIF", "Open account 30 days", 2.5, "Textiles"),
+        ("Saudi Harvest Trading", "Saudi Arabia", "Jeddah", "Red Chilli Powder", "12 MT", 12, "FOB", "TT advance", 2150, "Spices"),
+        ("Amsterdam Fine Foods", "Netherlands", "Rotterdam", "Arabica Green Coffee", "5 MT", 5, "CIF", "LC 60 days", 5300, "Beverages"),
+        ("Tokyo Trade House", "Japan", "Yokohama", "Assam CTC Black Tea", "8 MT", 8, "CFR", "TT on shipment", 3200, "Beverages"),
+    ]
+    for i, (buyer, country, dest, product, qstr, qv, inco, pay, price, cat) in enumerate(rfqs):
+        r = {"id": str(uuid.uuid4()), "buyer_name": buyer, "country": country, "destination": dest,
+             "product": product, "category": cat, "grade": "", "quantity": qstr, "quantity_value": qv, "unit": "MT",
+             "incoterm": inco, "payment_terms": pay, "target_price": price, "currency": "USD",
+             "delivery": "Within 30-45 days", "industry": "Import & Distribution", "notes": "",
+             "match_score": 96 - i * 3, "status": "Open", "offers_count": (i % 3),
+             "created_at": days_ago_iso(i)}
+        await db.rfqs.insert_one(dict(r))
+
+    # sample protected transactions
+    won_deals = await db.deals.find({"stage": "Won"}, {"_id": 0}).to_list(10)
+    for d in won_deals[:2]:
+        value = d.get("deal_value", 100000)
+        commission = round(value * PLATFORM_COMMISSION_PCT / 100, 2)
+        t = {"id": str(uuid.uuid4()), "number": f"EP-{uuid.uuid4().hex[:6].upper()}", "deal_id": d["id"],
+             "buyer_name": d["buyer_name"], "seller_name": EXPORTER["name"], "product": d["product"],
+             "quantity": d["quantity"], "value": value, "currency": "USD", "commission_pct": PLATFORM_COMMISSION_PCT,
+             "commission": commission, "payout": round(value - commission, 2), "status": "Payout Completed",
+             "stripe_session_id": None, "paid": True, "created_at": days_ago_iso(10),
+             "timeline": [{"step": s, "done": True, "at": days_ago_iso(10 - i)} for i, s in enumerate(TXN_STEPS)]}
+        await db.transactions.insert_one(dict(t))
+    logger.info("Marketplace seeded.")
 
 
 app.include_router(api)
@@ -1106,6 +1678,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await seed_demo()
+    await seed_marketplace()
 
 
 @app.on_event("shutdown")

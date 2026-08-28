@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { fmtUSD, countryFlag, fmtDate, stageColor } from "@/lib/format";
 import { PageShell } from "@/components/Common";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { BuyerVerification } from "@/components/BuyerVerification";
 import { ArrowLeft, Mail, Phone, MapPin, Briefcase, MessageSquare, FileText, Activity } from "lucide-react";
 
 export default function BuyerDetail() {
@@ -51,6 +52,7 @@ export default function BuyerDetail() {
         </TabsList>
 
         <TabsContent value="overview">
+          <BuyerVerification buyerId={id} />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[["Deals", deals.length], ["Open pipeline", fmtUSD(totalValue, true)], ["Documents", documents.length]].map(([k, v]) => (
               <div key={k} className="rounded-2xl border border-slate-200 bg-white p-6"><div className="overline">{k}</div><div className="font-display text-2xl font-bold text-slate-900 mt-2">{v}</div></div>

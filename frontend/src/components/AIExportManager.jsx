@@ -4,19 +4,29 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, X, Send, ArrowRight, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { useRole } from "@/context/RoleContext";
 
-const SUGGESTIONS = [
-  "Which buyer should I follow up with?",
-  "Show my highest-value deals.",
-  "Which deals are waiting for buyer action?",
+const SUGGESTIONS_SELLER = [
+  "Find buyers for my products",
+  "Which deals need attention?",
+  "Help me negotiate my Dubai deal",
   "Which quotations have low margins?",
   "Prepare the export pack for Dubai Harvest Trading.",
 ];
+const SUGGESTIONS_BUYER = [
+  "Find suppliers for premium makhana",
+  "Compare my latest offers",
+  "Help me negotiate a better price",
+  "What documents should I request?",
+  "Which supplier is the best match?",
+];
 
 export function AIExportManager() {
+  const { isSeller } = useRole();
+  const SUGGESTIONS = isSeller ? SUGGESTIONS_SELLER : SUGGESTIONS_BUYER;
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: "ai", text: "Hi, I'm ExportPilot — your AI export manager. Ask me what to do next, or pick a prompt below." },
+    { role: "ai", text: isSeller ? "Hi, I'm ExportPilot — your AI export manager. Ask me what to do next, or pick a prompt below." : "Hi, I'm ExportPilot — your AI trade assistant. Ask me to find suppliers, compare offers or help you negotiate." },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);

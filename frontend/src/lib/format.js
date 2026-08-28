@@ -1,3 +1,27 @@
+export const CURRENCY = {
+  USD: { symbol: "$", locale: "en-US" }, EUR: { symbol: "€", locale: "de-DE" },
+  GBP: { symbol: "£", locale: "en-GB" }, INR: { symbol: "₹", locale: "en-IN" },
+  SGD: { symbol: "S$", locale: "en-SG" }, JPY: { symbol: "¥", locale: "ja-JP" },
+  AUD: { symbol: "A$", locale: "en-AU" }, AED: { symbol: "AED ", locale: "en-AE" },
+};
+
+export const COUNTRY_CURRENCY = {
+  "United Arab Emirates": "USD", Qatar: "USD", Germany: "EUR", "Saudi Arabia": "USD",
+  Singapore: "SGD", India: "INR", "United Kingdom": "GBP", "United States": "USD",
+  Netherlands: "EUR", France: "EUR", Japan: "JPY", Australia: "AUD",
+};
+
+export function fmtMoney(n, code = "USD", compact = false) {
+  const c = CURRENCY[code] || CURRENCY.USD;
+  const v = Number(n || 0);
+  if (compact) {
+    if (v >= 1_000_000) return `${c.symbol}${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `${c.symbol}${(v / 1_000).toFixed(1)}K`;
+    return `${c.symbol}${v.toFixed(v % 1 === 0 ? 0 : 2)}`;
+  }
+  return `${c.symbol}${v.toLocaleString(c.locale, { maximumFractionDigits: 2 })}`;
+}
+
 export function fmtUSD(n, compact = false) {
   const v = Number(n || 0);
   if (compact) {
