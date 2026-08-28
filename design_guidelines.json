@@ -1,0 +1,119 @@
+{
+  "theme": "Light mode default (High-Contrast SaaS / Authority & Trust). Clean, minimalist, white/slate backgrounds with vibrant AI accents.",
+  "typography": {
+    "primary_font": "Outfit",
+    "secondary_font": "Plus Jakarta Sans",
+    "fallback_fonts": "sans-serif",
+    "import_url": "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap",
+    "rules": {
+      "headings": "Use 'Outfit' (font-sans). Tight letter spacing (tracking-tight). Max size text-5xl/6xl for hero. Do NOT use Inter.",
+      "body": "Use 'Plus Jakarta Sans' (font-sans). Leading-relaxed for readability.",
+      "labels_overlines": "Uppercase, text-xs, tracking-[0.2em], font-semibold text-slate-500."
+    }
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#F8FAFC",
+    "surface_hover": "#F1F5F9",
+    "border": "#E2E8F0",
+    "text_primary": "#0F172A",
+    "text_secondary": "#64748B",
+    "primary_accent": "#0F172A",
+    "ai_accent": "#4F46E5",
+    "ai_accent_glow": "rgba(79, 70, 229, 0.15)",
+    "success": "#059669",
+    "warning": "#D97706",
+    "danger": "#DC2626",
+    "rules": {
+      "neutral_tint": "Never use pure #000000 or #808080. Always use Slate (blue-tinted greys).",
+      "ai_elements": "Use the AI Accent (#4F46E5 - Indigo 600) strictly for AI actions, AI recommendations, and the AI Export Manager. Do not use it for generic primary buttons unless they trigger AI.",
+      "contrast": "Ensure all text meets APCA 3:1 minimum contrast. Buttons must have clear hover states (lighter hue of active state)."
+    }
+  },
+  "layouts": {
+    "dashboard": "Collapsible left sidebar for navigation. Main content uses a strict Bento Grid (grid-cols-1 md:grid-cols-12 gap-6).",
+    "spacing": "Generous. Use p-6 or p-8 for cards. 24px gutters standard.",
+    "kanban": "Horizontal scrollable flex container with fixed-width columns (w-80 or w-96). Cards within columns stack vertically with gap-3.",
+    "marketing": "Phi-proportioned sections. No generic 'Bootstrap' columns. Use aggressive asymmetry and generous whitespace (py-24 to py-32)."
+  },
+  "visual_enhancers": {
+    "cards": "Flat solid surfaces. 1px border-slate-200, bg-white, shadow-sm. Hover: shadow-md, border-slate-300, -translate-y-[2px] transition-all.",
+    "ai_surfaces": "The 'Tracing Beam' or subtle glowing inner border (box-shadow: inset 0 0 0 1px #4F46E5, 0 0 20px rgba(79,70,229,0.1)).",
+    "glassmorphism": "Used ONLY for sticky headers or floating AI Export Manager. bg-white/70 backdrop-blur-xl border-b border-slate-200/50.",
+    "data_density": "Grid Borders (The 'Technical' Look) for the Quote Builder and Export Pack tables. Visible skeleton grid with border-collapse."
+  },
+  "components": {
+    "buttons": "Pill-shaped (rounded-full) or smooth (rounded-lg). Primary: bg-slate-900 text-white hover:bg-slate-800. AI Action: bg-indigo-600 text-white hover:bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.3)].",
+    "inputs": "Clean, rounded-md, border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500. Large text areas for the Inbox.",
+    "badges": "Polished 'COMING SOON' badges in the sidebar. Small, rounded-full, bg-slate-100 text-slate-600 border border-slate-200 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5.",
+    "charts": "Recharts. No grid lines. Smooth curves (type='monotone'). Custom tooltip with glassmorphism.",
+    "icons": "lucide-react (stroke-width 1.5 for a lighter, premium feel)."
+  },
+  "motion": {
+    "rules": "Subtle, professional animations. No bounce effects.",
+    "interactions": "Hover states on all clickable elements. Framer Motion for layout transitions.",
+    "ai_processing": "Shimmer effects (skeleton loaders) and subtle pulsing glows when the AI is analyzing the inquiry or generating the export pack.",
+    "page_transitions": "Fade and slight slide-up (y: 10, opacity: 0 to y: 0, opacity: 1)."
+  },
+  "image_urls": {
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=256&q=80",
+        "description": "Professional man (use for Buyer profile)",
+        "category": "buyers_crm"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=256&q=80",
+        "description": "Professional woman (use for Buyer profile)",
+        "category": "buyers_crm"
+      },
+      {
+        "url": "https://images.pexels.com/photos/37148308/pexels-photo-37148308.jpeg?auto=format&fit=crop&w=256&q=80",
+        "description": "Confident business professional (use for Buyer profile)",
+        "category": "buyers_crm"
+      },
+      {
+        "url": "https://images.pexels.com/photos/27086922/pexels-photo-27086922.jpeg?auto=format&fit=crop&w=256&q=80",
+        "description": "Smiling woman in formal suit (use for Buyer profile)",
+        "category": "buyers_crm"
+      }
+    ],
+    "backgrounds": [
+      {
+        "url": "https://images.unsplash.com/photo-1626428091984-48f9ffbf927c?auto=format&fit=crop&w=1920&q=80",
+        "description": "Light, subtle blue/white abstract background (use at very low opacity 0.05 for landing page hero background)",
+        "category": "landing_page_hero"
+      }
+    ]
+  },
+  "accessibility": {
+    "focus": "Visible focus rings on all inputs/buttons (focus-visible:ring-2).",
+    "contrast": "Text over backgrounds must exceed 4.5:1. Never use gray-on-gray for essential info.",
+    "testing": "All interactive elements MUST include data-testid attribute (e.g., data-testid='analyze-inquiry-btn')."
+  },
+  "instructions_to_main_agent": [
+    "1. Start by importing the fonts (Outfit, Plus Jakarta Sans) in index.css.",
+    "2. Implement a unified layout shell for the dashboard with a collapsible left sidebar containing 'CORE' and 'EXPANSION' sections.",
+    "3. Build the Landing Page first to set the brand tone. Use aggressive spacing and a clean hero section.",
+    "4. For the Command Center, use a Bento Grid layout. The 'AI Action Center' should be visually distinct (e.g., subtle indigo border/glow).",
+    "5. The 'AI Buyer Inbox' must have a realistic text area and an 'Analyze Inquiry' button that triggers a loading state before revealing the Extracted Requirements.",
+    "6. Use Shadcn UI primitives but strip away default aesthetics to match the premium, flat, sharp-yet-rounded (0.5rem radius) B2B look.",
+    "7. Ensure the Deals Kanban uses a horizontal scrolling area and clearly displays 'Deal Health' scores.",
+    "8. Implement Recharts for the 'Revenue at Risk' chart with minimal UI (hide grid lines, use custom tooltips).",
+    "9. Use lucide-react icons throughout. Avoid cartoonish illustrations.",
+    "10. Ensure the app requires NO LOGIN and defaults to a Demo Workspace immediately as requested."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Do NOT use dark colors as gradients. Stick to solid colors or extremely subtle meshes.",
+    "Don't make generic centered layouts. Use asymmetrical or F-pattern alignments.",
+    "Create depth through layered design elements with z-index hierarchy and subtle shadows (shadow-sm, shadow-md).",
+    "You MUST NOT apply universal transition (e.g., transition: all). Add transitions to specific properties (opacity, transform, background-color).",
+    "You MUST NOT center align the app container in App.css.",
+    "Every interaction needs micro-animations - hover states, transitions. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "NEVER use placeholder AI emoji characters (🤖🧠) for icons. Use proper lucide-react icons (e.g., Bot, Sparkles, Zap).",
+    "Missing categories/images = main agent will use placeholder text which is FORBIDDEN. Use the provided Unsplash/Pexels URLs.",
+    "Prioritize using pre-existing components from src/components/ui. Create new components that match the style."
+  ]
+}
